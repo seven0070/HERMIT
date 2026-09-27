@@ -15,6 +15,7 @@ noise.
 """
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -25,6 +26,11 @@ DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 EVOLUTION_LOG_FILE = DEFAULT_DATA_DIR / "evolution_log.json"
 LEARNED_SKILLS_DIR = DEFAULT_DATA_DIR / "learned_skills"
 ACTIVE_RULES_FILE = LEARNED_SKILLS_DIR / "evolved_rules.md"
+PENDING_RULES_FILE = LEARNED_SKILLS_DIR / "pending_rules.md"
+
+def review_gate_enabled() -> bool:
+    """EVOLVER_REVIEW_GATE=1 makes mutations wait for explicit approval."""
+    return os.environ.get("EVOLVER_REVIEW_GATE", "").strip() == "1"
 
 class SelfEvolver:
     """Autonomous self-improvement engine for agent systems."""
@@ -128,6 +134,28 @@ class SelfEvolver:
         existing_rules = self.get_evolved_rules()
         new_rules = await mutator.mutate_rules(existing_rules, report)
 
+        if review_gate_enabled():
+            # Review gate: draft only. Applied later via approve_pending().
+            PENDING_RULES_FILE.write_text(new_rules.strip() + "\n", encoding="utf-8")
+            log["pending"] = {
+                "timestamp": datetime.now().isoformat(),
+                "trigger": user_input[:100],
+                "issues": report.issues,
+                "issue_signature": signature,
+                "strategy": report.recommended_strategy,
+                "score_before": report.score,
+            }
+            self.save_log(log)
+            return {
+                "evolved": False,
+                "pending_review": True,
+                "score": report.score,
+                "issues": report.issues,
+                "strategy": report.recommended_strategy,
+                "message": "Mutation drafted to pending_rules.md - awaiting review.",
+                "instructions": current_instructions
+            }
+
         cur_ver = log.get("current_version", "1.0.0")
         parts = cur_ver.split(".")
         new_ver = f"{parts[0]}.{parts[1]}.{int(parts[2]) + 1}"
@@ -165,6 +193,46 @@ class SelfEvolver:
             "instructions": new_instructions
         }
 
+    def has_pending(self) -> bool:
+        return PENDING_RULES_FILE.exists() and bool(self.load_log().get("pending"))
+
+    def approve_pending(self) -> Optional[str]:
+        """Promotes the pending draft to the active rules overlay. Returns the new version."""
+        log = self.load_log()
+        pending = log.get("pending")
+        if not pending or not PENDING_RULES_FILE.exists():
+            return None
+        rules = PENDING_RULES_FILE.read_text(encoding="utf-8").strip()
+        cur_ver = log.get("current_version", "1.0.0")
+        parts = cur_ver.split(".")
+        new_ver = f"{parts[0]}.{parts[1]}.{int(parts[2]) + 1}"
+        self._save_rules(rules, new_ver)
+        record = {
+            "version": new_ver,
+            "timestamp": datetime.now().isoformat(),
+            "trigger": pending.get("trigger", ""),
+            "issues": pending.get("issues", []),
+            "issue_signature": pending.get("issue_signature", ""),
+            "strategy": pending.get("strategy", ""),
+            "score_before": pending.get("score_before", 0),
+            "notes": f"Mutation applied via strategy '{pending.get('strategy', '')}' after human review."
+        }
+        log["current_version"] = new_ver
+        log["total_evolutions"] = log.get("total_evolutions", 0) + 1
+        log["history"].append(record)
+        log.pop("pending", None)
+        self.save_log(log)
+        PENDING_RULES_FILE.unlink(missing_ok=True)
+        return new_ver
+
+    def reject_pending(self) -> bool:
+        """Discards the pending draft."""
+        log = self.load_log()
+        had = bool(log.pop("pending", None)) or PENDING_RULES_FILE.exists()
+        self.save_log(log)
+        PENDING_RULES_FILE.unlink(missing_ok=True)
+        return had
+
     def get_current_version(self) -> str:
         return self.load_log().get("current_version", "1.0.0")
 
@@ -174,9 +242,10 @@ class SelfEvolver:
     def get_evolution_summary(self) -> str:
         log = self.load_log()
         persisted = "rules loaded from disk" if self.get_evolved_rules() else "no evolved rules yet"
+        pending = ", 1 mutation awaiting review" if self.has_pending() else ""
         return (
             f"Self-Evolver Status: v{log.get('current_version', '1.0.0')} "
-            f"({log.get('total_evolutions', 0)} mutations / {log.get('total_evaluations', 0)} turns evaluated, {persisted})."
+            f"({log.get('total_evolutions', 0)} mutations / {log.get('total_evaluations', 0)} turns evaluated, {persisted}{pending})."
         )
 
 self_evolver = SelfEvolver()
