@@ -50,6 +50,13 @@ async def run_interactive_assistant():
                 if user_input.lower() in ("exit", "quit", "q"):
                     print("Goodbye! Have a productive day.")
                     break
+                if user_input.lower() == "approve":
+                    ver = self_evolver.approve_pending()
+                    print(f"[*] Evolution applied: v{ver}\n" if ver else "[*] No pending evolution to approve.\n")
+                    continue
+                if user_input.lower() == "reject":
+                    print("[*] Evolution discarded.\n" if self_evolver.reject_pending() else "[*] No pending evolution to reject.\n")
+                    continue
                     
                 print("\nAssistant is thinking...")
                 response = await ag.chat(user_input)
@@ -72,6 +79,8 @@ async def run_interactive_assistant():
                     if hasattr(ag, "apply_instructions"):
                         ag.apply_instructions(evolution_result["instructions"])
                     print(f"[*] [SELF-EVOLVED] Version updated to v{evolution_result['version']} (Strategy: {evolution_result['strategy']})\n")
+                elif evolution_result.get("pending_review"):
+                    print(f"[*] [EVOLUTION DRAFTED] {evolution_result['message']} Type 'approve' to apply or 'reject' to discard.\n")
                     
             except (KeyboardInterrupt, EOFError):
                 print("\nSession ended.")
