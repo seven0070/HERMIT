@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "description": "Local filesystem explorer and file operations",
+      "enabled": true,
+      "tools": [
+        "read_file",
+        "list_directory"
+      ]
+    },
+    "system_info": {
+      "description": "System hardware, OS, and runtime status",
+      "enabled": true,
+      "tools": [
+        "get_os_info",
+        "get_python_env"
+      ]
+    },
+    "browser": {
+      "description": "Zero-dependency web scraping and search engine",
+      "enabled": true,
+      "tools": [
+        "scrape_url",
+        "search_web"
+      ]
+    }
+  }
+}
