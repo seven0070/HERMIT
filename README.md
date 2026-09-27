@@ -26,6 +26,7 @@ An enterprise-grade, autonomous, multi-layered AI agent architecture with **Univ
 │      • Evolves ONLY on real failure signals (tool errors, explicit     │
 │        user corrections, refusals) - never on keyword coincidence      │
 │      • Evolved rules persist to disk and reload on every restart       │
+│      • Optional review gate (EVOLVER_REVIEW_GATE=1, approve/reject)    │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     ▼
