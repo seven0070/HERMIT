@@ -1,7 +1,14 @@
 {
   "mcpServers": {
+    "notes": {
+      "description": "Persistent scratch notes (example REAL MCP server over stdio)",
+      "enabled": true,
+      "command": "${PYTHON}",
+      "args": ["${ROOT}/mcp_servers/notes_server.py"]
+    },
     "filesystem": {
-      "description": "Local filesystem explorer and file operations",
+      "description": "Local filesystem explorer and file operations (built-in, not MCP)",
+      "type": "builtin",
       "enabled": true,
       "tools": [
         "read_file",
@@ -9,7 +16,8 @@
       ]
     },
     "system_info": {
-      "description": "System hardware, OS, and runtime status",
+      "description": "System hardware, OS, and runtime status (built-in, not MCP)",
+      "type": "builtin",
       "enabled": true,
       "tools": [
         "get_os_info",
@@ -17,7 +25,8 @@
       ]
     },
     "browser": {
-      "description": "Zero-dependency web scraping and search engine",
+      "description": "Zero-dependency web scraping and search engine (built-in, not MCP)",
+      "type": "builtin",
       "enabled": true,
       "tools": [
         "scrape_url",
