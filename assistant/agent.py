@@ -1,10 +1,16 @@
-"""Layer 1: Personal Assistant Agent implementation supporting both Google Antigravity SDK and Universal Gateway."""
+"""Layer 1: Personal Assistant Agent with a real tool-call execution loop.
+
+The model emits `[TOOL_CALL: name(param="value")]`; we parse it, execute the
+registered tool, feed the result back, and let the model continue - up to
+MAX_TOOL_LOOPS rounds. Conversation history is kept per agent instance and
+passed to the gateway so chat turns are not stateless.
+"""
 
 import os
-import json
+import ast
+import inspect
 import re
-from pathlib import Path
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional, Callable, Tuple
 
 from gateway.config import load_env
 
@@ -21,6 +27,14 @@ from rag import search_knowledge_base, index_file, list_indexed_documents
 from mcp_hub import list_mcp_tools, call_mcp_tool
 from swarm import swarm
 from tools.browser import scrape_url, search_web
+
+MAX_TOOL_LOOPS = 5
+HISTORY_LIMIT = 40  # messages passed to providers
+
+# Matches [TOOL_CALL: name(...)] - one balanced paren level deep.
+TOOL_CALL_RE = re.compile(
+    r"\[TOOL_CALL:\s*([A-Za-z_][\w]*)\s*(\((?:[^()\[\]]|\([^()]*\))*\))?\s*\]"
+)
 
 def get_system_health_and_evolution() -> str:
     """Checks the health of the Universal API Gateway and the current Self-Evolver version."""
@@ -65,7 +79,7 @@ TOOLS_REGISTRY: Dict[str, Callable] = {
 
 def build_system_instructions() -> str:
     memory_block = memory_store.get_memory_prompt_block()
-    
+
     return f"""You are Hermit Agent, the user's primary Personal AI Assistant (Layer 1).
 You serve as an executive chief-of-staff, orchestrator, and personal copilot.
 
@@ -94,10 +108,26 @@ You serve as an executive chief-of-staff, orchestrator, and personal copilot.
 
 ### CORE OPERATING RULES:
 1. Always be concise, structured, professional, and actionable.
-2. If the user asks about their schedule, tasks, documents, knowledge base, system status, web content, or specialist delegation, use your tools.
-   To call a tool, output: `[TOOL_CALL: tool_name(param="value")]`.
-3. If no tool is needed, respond directly and helpfully.
+2. To use a tool, output EXACTLY one line per call in this form:
+   [TOOL_CALL: tool_name(param="value")]
+   You may emit several calls. After tools run, you receive their results as
+   [TOOL_RESULT: name] blocks and then give the final answer.
+   Only emit tool calls when a tool is actually needed; otherwise answer directly.
+3. When the user asks you to add, schedule, complete, remember, or update
+   something, ALWAYS use the matching tool - never just say you did it.
 """
+
+def parse_tool_call_args(arg_src: Optional[str]) -> Tuple[list, dict]:
+    """Parses the argument list of a tool call using the Python AST.
+
+    Only literal constants are allowed - no arbitrary code execution.
+    """
+    if not arg_src:
+        return [], {}
+    expr = ast.parse(f"__tool__{arg_src}", mode="eval").body
+    args = [ast.literal_eval(a) for a in expr.args]
+    kwargs = {kw.arg: ast.literal_eval(kw.value) for kw in expr.keywords}
+    return args, kwargs
 
 class UniversalGatewayAgent:
     """Agent implementation running across Universal Gateway providers (OpenRouter, Groq, etc.)."""
@@ -112,54 +142,122 @@ class UniversalGatewayAgent:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         pass
 
-    async def chat(self, prompt: str) -> str:
-        # Intent heuristics for immediate context augmentation
+    def apply_instructions(self, new_instructions: str):
+        """Applies a mutated system prompt produced by the Self-Evolver."""
+        if new_instructions and new_instructions.strip():
+            self.system_instructions = new_instructions
+
+    def _record_turn(self, user_text: str, assistant_text: str):
+        self.history.append({"role": "user", "content": user_text})
+        self.history.append({"role": "assistant", "content": assistant_text})
+        if len(self.history) > HISTORY_LIMIT * 2:
+            self.history = self.history[-HISTORY_LIMIT * 2:]
+
+    async def _run_tool_call(self, name: str, arg_src: Optional[str]) -> str:
+        fn = TOOLS_REGISTRY.get(name)
+        if fn is None:
+            known = ", ".join(sorted(TOOLS_REGISTRY))
+            return f"[TOOL ERROR] Unknown tool '{name}'. Known tools: {known}"
+        try:
+            args, kwargs = parse_tool_call_args(arg_src)
+        except Exception as e:
+            return f"[TOOL ERROR] Could not parse arguments for '{name}': {e}"
+        try:
+            result = fn(*args, **kwargs)
+            if inspect.isawaitable(result):
+                result = await result
+            return str(result)
+        except TypeError as e:
+            return f"[TOOL ERROR] Bad arguments for '{name}': {e}"
+        except Exception as e:
+            return f"[TOOL ERROR] {type(e).__name__} while running '{name}': {e}"
+
+    def _fast_path(self, prompt: str) -> Optional[str]:
+        """Deterministic shortcuts for read-only status queries."""
+        lower = prompt.lower()
+        if "briefing" in lower or "morning brief" in lower:
+            return generate_morning_briefing()
+        if "health" in lower or "status" in lower:
+            return get_system_health_and_evolution()
+        if "specialist" in lower and "list" in lower:
+            return swarm.list_specialists()
+        return None
+
+    def _augment_context(self, prompt: str) -> str:
+        """Injects live data for common read intents (kept from the original design)."""
         lower = prompt.lower()
         if "calendar" in lower or "meetings" in lower or "schedule" in lower:
-            cal_data = get_calendar_events()
-            prompt_context = f"{prompt}\n\n[Live Calendar Data]:\n{cal_data}"
-        elif "tasks" in lower or "to-do" in lower or "todos" in lower:
-            task_data = list_tasks()
-            prompt_context = f"{prompt}\n\n[Live Tasks Data]:\n{task_data}"
-        elif "briefing" in lower or "morning brief" in lower:
-            return generate_morning_briefing()
-        elif "health" in lower or "status" in lower:
-            return get_system_health_and_evolution()
-        elif "mcp" in lower or "servers" in lower or "server tools" in lower:
-            mcp_data = list_mcp_tools()
-            prompt_context = f"{prompt}\n\n[Connected MCP Tools]:\n{mcp_data}"
-        elif any(k in lower for k in ["doc", "docs", "document", "knowledge", "rag", "search file"]):
-            kb_data = search_knowledge_base(prompt)
-            prompt_context = f"{prompt}\n\n[Knowledge Base Context]:\n{kb_data}"
-        elif "scrape" in lower or "crawl" in lower or "http://" in lower or "https://" in lower:
-            import re
+            return f"{prompt}\n\n[Live Calendar Data]:\n{get_calendar_events()}"
+        if "tasks" in lower or "to-do" in lower or "todos" in lower:
+            return f"{prompt}\n\n[Live Tasks Data]:\n{list_tasks()}"
+        if "mcp" in lower or "servers" in lower or "server tools" in lower:
+            return f"{prompt}\n\n[Connected MCP Tools]:\n{list_mcp_tools()}"
+        if any(k in lower for k in ["doc", "docs", "document", "knowledge", "rag", "search file"]):
+            return f"{prompt}\n\n[Knowledge Base Context]:\n{search_knowledge_base(prompt)}"
+        if "scrape" in lower or "crawl" in lower or "http://" in lower or "https://" in lower:
             urls = re.findall(r'https?://[^\s]+', prompt)
-            scraped = scrape_url(urls[0]) if urls else scrape_url(prompt.split()[-1])
-            prompt_context = f"{prompt}\n\n[Scraped Web Page Content]:\n{scraped}"
-        elif "search web" in lower or "google" in lower or "duckduckgo" in lower:
+            scraped = scrape_url(urls[0]) if urls else "[No URL found in message]"
+            return f"{prompt}\n\n[Scraped Web Page Content]:\n{scraped}"
+        if "search web" in lower or "duckduckgo" in lower:
             query = prompt.replace("search web for", "").replace("search web", "").strip()
-            web_results = search_web(query or prompt)
-            prompt_context = f"{prompt}\n\n[Live Web Search Results]:\n{web_results}"
-        elif "specialist" in lower or "swarm" in lower:
-            if "list" in lower:
-                return swarm.list_specialists()
-            elif "workflow" in lower or "pipeline" in lower:
-                return await swarm.run_collaborative_workflow(prompt)
-            elif "research" in lower:
-                return await swarm.dispatch("research", prompt)
-            elif "code" in lower or "engineer" in lower:
-                return await swarm.dispatch("code", prompt)
-            elif "review" in lower or "qa" in lower:
-                return await swarm.dispatch("review", prompt)
-            prompt_context = f"{prompt}\n\n[Available Specialists]:\n{swarm.list_specialists()}"
-        else:
-            prompt_context = prompt
+            return f"{prompt}\n\n[Live Web Search Results]:\n{search_web(query or prompt)}"
+        return prompt
 
-        response = await gateway.complete(
-            prompt=prompt_context,
-            system_instruction=self.system_instructions
-        )
-        return response.text.strip()
+    async def chat(self, prompt: str) -> str:
+        fast = self._fast_path(prompt)
+        if fast is not None:
+            self._record_turn(prompt, fast)
+            return fast
+
+        # Swarm dispatch shortcuts (async, explicit)
+        lower = prompt.lower()
+        if "swarm" in lower or "specialist" in lower:
+            if "workflow" in lower or "pipeline" in lower:
+                reply = await swarm.run_collaborative_workflow(prompt)
+                self._record_turn(prompt, reply)
+                return reply
+            if "research" in lower:
+                reply = await swarm.dispatch("research", prompt)
+                self._record_turn(prompt, reply)
+                return reply
+
+        working_prompt = self._augment_context(prompt)
+        history_snapshot = list(self.history)[-HISTORY_LIMIT:]
+
+        last_text = ""
+        for _ in range(MAX_TOOL_LOOPS):
+            response = await gateway.complete(
+                prompt=working_prompt,
+                system_instruction=self.system_instructions,
+                history=history_snapshot,
+            )
+            text = response.text.strip()
+            last_text = text
+
+            calls = TOOL_CALL_RE.findall(text)
+            if not calls:
+                self._record_turn(prompt, text)
+                return text
+
+            # Execute every requested tool call, then feed results back.
+            results = []
+            for name, arg_src in calls:
+                output = await self._run_tool_call(name, arg_src)
+                results.append(f"[TOOL_RESULT: {name}]\n{output}")
+
+            history_snapshot.append({"role": "user", "content": working_prompt})
+            history_snapshot.append({"role": "assistant", "content": text})
+            working_prompt = (
+                "The tool calls you requested have been executed. Results:\n\n"
+                + "\n\n".join(results)
+                + "\n\nNow either issue more [TOOL_CALL: ...] lines if needed, "
+                  "or give the user the final answer."
+            )
+
+        # Loop cap reached - return whatever the model last said, with the run note.
+        note = last_text + "\n\n[Note: tool-call round limit reached]"
+        self._record_turn(prompt, note)
+        return note
 
 def create_personal_assistant() -> Any:
     """Instantiates the Layer 1 Personal Assistant.
@@ -168,8 +266,7 @@ def create_personal_assistant() -> Any:
     otherwise uses the Universal Gateway (OpenRouter, Groq, etc.).
     """
     instructions = build_system_instructions()
-    
-    # If GEMINI_API_KEY is configured, try native Antigravity SDK
+
     if os.environ.get("GEMINI_API_KEY"):
         try:
             from google.antigravity import Agent, LocalAgentConfig
@@ -185,5 +282,4 @@ def create_personal_assistant() -> Any:
         except Exception:
             pass
 
-    # Default to Universal Gateway Agent (OpenRouter, Groq, etc.)
     return UniversalGatewayAgent(system_instructions=instructions)

@@ -63,12 +63,14 @@ async def api_chat(request):
         async with _assistant as ag:
             reply = await ag.chat(message)
 
-        # Autonomous Layer 2 evolution check
+        # Autonomous Layer 2 evolution check - evaluates the REAL prompt and applies it
         ev_res = await self_evolver.evolve(
-            current_instructions="",
+            current_instructions=getattr(ag, "system_instructions", ""),
             user_input=message,
             agent_output=reply
         )
+        if ev_res.get("evolved") and hasattr(ag, "apply_instructions"):
+            ag.apply_instructions(ev_res["instructions"])
 
         return JSONResponse({
             "reply": reply,
@@ -651,7 +653,7 @@ I can manage your calendar, prioritize your tasks, query the RAG knowledge base,
         const calHtml = calRes.events.map(e => `
           <div class="list-item">
             <div><strong>${e.title}</strong> (${e.start_time} - ${e.end_time})</div>
-            <span style="color: var(--text-muted); font-size: 11px;">${e.day}</span>
+            <span style="color: var(--text-muted); font-size: 11px;">${e.date}</span>
           </div>
         `).join('');
         document.getElementById('calendarList').innerHTML = calHtml || 'No events found.';
@@ -741,5 +743,5 @@ app = Starlette(debug=True, routes=routes, middleware=middleware)
 
 if __name__ == "__main__":
     import uvicorn
-    print("[*] Starting AI Agent Web Dashboard on http://localhost:8000")
-    uvicorn.run("web.server:app", host="127.0.0.1", port=8000, reload=False)
+    print("[*] Starting AI Agent Web Dashboard on http://localhost:8001")
+    uvicorn.run("web.server:app", host="127.0.0.1", port=8001, reload=False)

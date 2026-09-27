@@ -73,6 +73,7 @@ class UniversalGateway:
         prompt: str,
         system_instruction: Optional[str] = None,
         preferred_provider: Optional[str] = None,
+        history: Optional[List[Dict[str, str]]] = None,
         **kwargs
     ) -> GatewayResponse:
         """Executes a completion with automatic multi-provider fallback.
@@ -99,6 +100,7 @@ class UniversalGateway:
                 response = await provider.generate(
                     prompt=prompt,
                     system_instruction=system_instruction,
+                    history=history,
                     **kwargs
                 )
                 return response

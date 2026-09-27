@@ -16,23 +16,7 @@ class TaskStore:
     def _ensure_storage(self):
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
         if not self.file_path.exists():
-            sample_tasks = [
-                {
-                    "id": "task-1",
-                    "description": "Define Layer 1 personal assistant architecture",
-                    "priority": "P1",
-                    "status": "in_progress",
-                    "due_date": str(date.today())
-                },
-                {
-                    "id": "task-2",
-                    "description": "Connect prebuilt tools from awesome-ai-apps & awesome-llm-apps",
-                    "priority": "P1",
-                    "status": "pending",
-                    "due_date": str(date.today())
-                }
-            ]
-            self.save(sample_tasks)
+            self.save([])
 
     def load(self) -> List[Dict[str, Any]]:
         try:
@@ -44,6 +28,32 @@ class TaskStore:
     def save(self, tasks: List[Dict[str, Any]]):
         with open(self.file_path, "w", encoding="utf-8") as f:
             json.dump(tasks, f, indent=2, ensure_ascii=False)
+
+    def get_all_tasks(self) -> List[Dict[str, Any]]:
+        return self.load()
+
+    def add_task(self, description: str, priority: str = "P2", due_date: Optional[str] = None) -> Dict[str, Any]:
+        tasks = self.load()
+        new_task = {
+            "id": f"task-{len(tasks) + 1}",
+            "description": description,
+            "priority": priority.upper(),
+            "status": "pending",
+            "due_date": due_date if due_date else str(date.today())
+        }
+        tasks.append(new_task)
+        self.save(tasks)
+        return new_task
+
+    def complete_task(self, task_id: str) -> bool:
+        clean_id = task_id if task_id.startswith("task-") else f"task-{task_id}"
+        tasks = self.load()
+        for t in tasks:
+            if t.get("id") == clean_id:
+                t["status"] = "completed"
+                self.save(tasks)
+                return True
+        return False
 
 task_store = TaskStore()
 
@@ -73,16 +83,7 @@ def add_task(description: str, priority: str = "P2", due_date: Optional[str] = N
         priority: Priority level ('P1' high, 'P2' medium, 'P3' low). Default 'P2'.
         due_date: Optional due date (YYYY-MM-DD). Defaults to today.
     """
-    tasks = task_store.load()
-    new_task = {
-        "id": f"task-{len(tasks) + 1}",
-        "description": description,
-        "priority": priority.upper(),
-        "status": "pending",
-        "due_date": due_date if due_date else str(date.today())
-    }
-    tasks.append(new_task)
-    task_store.save(tasks)
+    new_task = task_store.add_task(description, priority=priority, due_date=due_date)
     return f"Created task #{new_task['id']} [{new_task['priority']}]: {description}"
 
 def complete_task(task_id: str) -> str:
@@ -92,10 +93,6 @@ def complete_task(task_id: str) -> str:
         task_id: The ID of the task (e.g. 'task-1' or '1').
     """
     clean_id = task_id if task_id.startswith("task-") else f"task-{task_id}"
-    tasks = task_store.load()
-    for t in tasks:
-        if t.get("id") == clean_id:
-            t["status"] = "completed"
-            task_store.save(tasks)
-            return f"Task #{clean_id} marked as completed."
+    if task_store.complete_task(clean_id):
+        return f"Task #{clean_id} marked as completed."
     return f"Task #{clean_id} not found."

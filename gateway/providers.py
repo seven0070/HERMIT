@@ -52,10 +52,17 @@ class GeminiProvider(BaseProvider):
         import asyncio
         loop = asyncio.get_running_loop()
         
+        history = kwargs.get("history") or []
+        contents = []
+        for msg in history[-40:]:
+            role = "model" if msg.get("role") == "assistant" else "user"
+            contents.append({"role": role, "parts": [{"text": msg.get("content", "")}]})
+        contents.append({"role": "user", "parts": [{"text": prompt}]})
+
         def _call():
             return client.models.generate_content(
                 model=self.model,
-                contents=prompt,
+                contents=contents,
                 config=config_kwargs if config_kwargs else None
             )
             
@@ -87,14 +94,18 @@ class OpenAICompatibleProvider(BaseProvider):
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
-        
+
         # OpenRouter optional ranking headers
         if "openrouter" in self.base_url.lower():
-            headers["HTTP-Referer"] = "https://github.com/google/antigravity"
-            headers["X-Title"] = "Personal Assistant Layer 1/2"
+            headers["HTTP-Referer"] = "https://github.com/seven0070/HERMIT"
+            headers["X-Title"] = "Hermit Agent"
 
-        user_content = f"[Instructions]:\n{system_instruction}\n\n[Task]:\n{prompt}" if system_instruction else prompt
-        messages = [{"role": "user", "content": user_content}]
+        messages: List[Dict[str, str]] = []
+        if system_instruction:
+            messages.append({"role": "system", "content": system_instruction})
+        history = kwargs.get("history") or []
+        messages.extend(history[-40:])
+        messages.append({"role": "user", "content": prompt})
 
         model = kwargs.get("model") or self.default_model
 
@@ -136,11 +147,14 @@ class LocalMiniCPMProvider(OpenAICompatibleProvider):
         )
 
     def is_available(self) -> bool:
-        import socket
-        from urllib.parse import urlsplit
-        u = urlsplit(self.base_url)
+        """True only if a real OpenAI-compatible server (vLLM) answers /models.
+
+        A raw socket check false-positives on ANY service bound to the port
+        (including this project's own web UI when it shares the port).
+        """
         try:
-            with socket.create_connection((u.hostname, u.port), timeout=0.5):
-                return True
-        except OSError:
+            with httpx.Client(timeout=1.5) as client:
+                resp = client.get(f"{self.base_url}/models")
+                return resp.status_code == 200
+        except Exception:
             return False
