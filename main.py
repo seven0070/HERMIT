@@ -9,6 +9,7 @@ from gateway.router import gateway
 from evolver.engine import self_evolver
 from rag import list_indexed_documents
 from mcp_hub import list_mcp_tools
+from mcp_hub.config import load_mcp_config
 
 from gateway.config import load_env
 
@@ -29,7 +30,7 @@ async def run_interactive_assistant():
     print(f"[*] Gateway Providers Active: {', '.join(active_providers) if active_providers else 'None configured'}")
     print(f"[*] {self_evolver.get_evolution_summary()}")
     print(f"[*] RAG: {list_indexed_documents().replace(chr(10), ' | ')}")
-    print(f"[*] MCP Hub: filesystem, system_info connected")
+    print(f"[*] MCP Hub: {len(load_mcp_config().get('mcpServers', {}))} servers in mcp_config.json (built-in implementations)")
     print(f"[*] Swarm: Research, Engineering, QA Reviewer ready")
     
     # Show initial daily briefing
@@ -52,29 +53,23 @@ async def run_interactive_assistant():
                     
                 print("\nAssistant is thinking...")
                 response = await ag.chat(user_input)
-                
-                # Extract response text asynchronously
+                # chat() returns plain text; keep .text extraction for the Antigravity SDK path
                 if hasattr(response, "text"):
-                    if callable(response.text):
-                        import inspect
-                        if inspect.iscoroutinefunction(response.text) or asyncio.iscoroutine(response.text()):
-                            reply_text = await response.text()
-                        else:
-                            reply_text = response.text()
-                    else:
-                        reply_text = response.text
+                    reply_text = response.text if isinstance(response.text, str) else str(response.text)
                 else:
                     reply_text = str(response)
                     
                 print(f"\nAssistant:\n{reply_text}\n")
                 
-                # Autonomous Layer 2 Evolution Check (Observer)
+                # Autonomous Layer 2 Evolution Check - evaluates the real prompt and applies it
                 evolution_result = await self_evolver.evolve(
-                    current_instructions="",
+                    current_instructions=getattr(ag, "system_instructions", ""),
                     user_input=user_input,
                     agent_output=reply_text
                 )
                 if evolution_result.get("evolved"):
+                    if hasattr(ag, "apply_instructions"):
+                        ag.apply_instructions(evolution_result["instructions"])
                     print(f"[*] [SELF-EVOLVED] Version updated to v{evolution_result['version']} (Strategy: {evolution_result['strategy']})\n")
                     
             except (KeyboardInterrupt, EOFError):
