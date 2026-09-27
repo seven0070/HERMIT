@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import List, Dict, Any
 from rag.store import doc_store
+from rag.embeddings import embed_texts, resolve_provider
 
 def chunk_text(text: str, source_name: str, chunk_size: int = 600, overlap: int = 100) -> List[Dict[str, Any]]:
     """Splits raw text into sliding window chunks with overlap."""
@@ -53,7 +54,15 @@ def index_file(file_path: str) -> str:
         if not chunks:
             return f"File '{filename}' is empty."
 
+        # Best-effort semantic embeddings; keyword-only when no backend is up.
+        vectors = embed_texts([c["text"] for c in chunks])
+        mode = "keyword"
+        if vectors:
+            for c, v in zip(chunks, vectors):
+                c["embedding"] = v
+            mode = f"semantic ({resolve_provider()})"
+
         doc_store.add_document(filename, chunks)
-        return f"Successfully indexed '{filename}' ({len(chunks)} chunks stored in knowledge base)."
+        return f"Successfully indexed '{filename}' ({len(chunks)} chunks, mode: {mode})."
     except Exception as e:
         return f"Error indexing '{filename}': {str(e)}"
