@@ -65,7 +65,8 @@ async def run_interactive_assistant():
                 evolution_result = await self_evolver.evolve(
                     current_instructions=getattr(ag, "system_instructions", ""),
                     user_input=user_input,
-                    agent_output=reply_text
+                    agent_output=reply_text,
+                    tool_errors=list(getattr(ag, "last_tool_errors", []))
                 )
                 if evolution_result.get("evolved"):
                     if hasattr(ag, "apply_instructions"):
