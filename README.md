@@ -63,7 +63,7 @@ An enterprise-grade, autonomous, multi-layered AI agent architecture with **Univ
 ## 📂 Project Structure
 
 ```
-rapo/
+hermit/
 ├── assistant/                      # Layer 1: Personal Assistant
 │   ├── agent.py                    # UniversalGatewayAgent & Antigravity integration
 │   ├── memory.py                   # Long-term persistent memory store
@@ -118,6 +118,11 @@ rapo/
 
 ## 🚀 How to Run
 
+### 0. Install dependencies
+```powershell
+.\.venv\Scripts\python -m pip install -r requirements.txt
+```
+
 ### 1. Run the Interactive CLI Assistant
 ```powershell
 .\.venv\Scripts\python main.py
@@ -133,9 +138,9 @@ From the CLI prompt, you can:
 
 ### 2. Run the Web UI Command Center
 ```powershell
-.\.venv\Scripts\python -m uvicorn web.server:app --port 8000
+.\.venv\Scripts\python -m uvicorn web.server:app --port 8001
 ```
-Open **[http://localhost:8000](http://localhost:8000)** in your browser for a dark-mode command center with:
+Open **[http://localhost:8001](http://localhost:8001)** (port 8000 stays reserved for the local vLLM server) in your browser for a dark-mode command center with:
 - **Interactive Chat**: Live conversation with the 4-layer agent.
 - **Executive Overview**: Real-time morning briefing, provider status, and evolver version.
 - **Autonomous Swarm Hub**: Trigger 3-stage collaborative pipelines (Researcher &rarr; Coder &rarr; Reviewer) with live progress logging.
