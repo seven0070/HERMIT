@@ -4,6 +4,7 @@ import re
 import math
 from typing import List, Dict, Any, Tuple
 from rag.store import doc_store
+from rag.embeddings import embed_texts, cosine
 
 def tokenize(text: str) -> List[str]:
     """Simple lowercase alphanumeric tokenizer."""
@@ -48,11 +49,38 @@ def search_knowledge_base(query: str, top_k: int = 3) -> str:
     if not query_tokens:
         return "Please provide a valid query."
 
-    scored: List[Tuple[float, Dict[str, Any]]] = []
+    # Keyword scores, normalized to 0..1
+    kw_scored: List[Tuple[float, Dict[str, Any]]] = []
     for c in chunks:
         s = score_chunk(query_tokens, c.get("text", ""))
         if s > 0.0:
-            scored.append((s, c))
+            kw_scored.append((s, c))
+    max_kw = max((s for s, _ in kw_scored), default=0.0)
+
+    # Semantic scores when both sides have embeddings (otherwise keyword-only)
+    query_vec_list = embed_texts([query])
+    query_vec = query_vec_list[0] if query_vec_list else None
+    have_vectors = query_vec is not None and any(c.get("embedding") for c in chunks)
+
+    scored: List[Tuple[float, Dict[str, Any]]] = []
+    if have_vectors:
+        mode = "semantic + keyword (hybrid)"
+        seen = set()
+        for c in chunks:
+            kw = 0.0
+            for s, kc in kw_scored:
+                if kc is c:
+                    kw = s / max_kw if max_kw else 0.0
+                    break
+            sem = cosine(query_vec, c["embedding"]) if c.get("embedding") else 0.0
+            sem = max(0.0, sem)
+            final = 0.45 * kw + 0.55 * sem
+            if final > 0.0 and id(c) not in seen:
+                seen.add(id(c))
+                scored.append((final, c))
+    else:
+        mode = "keyword"
+        scored = [(s / max_kw if max_kw else 0.0, c) for s, c in kw_scored]
 
     # Sort descending by score
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -61,7 +89,7 @@ def search_knowledge_base(query: str, top_k: int = 3) -> str:
     if not top_results:
         return f"No relevant passages found in the knowledge base for '{query}'."
 
-    output = [f"Found {len(top_results)} relevant passage(s) for query: '{query}'\n"]
+    output = [f"Found {len(top_results)} relevant passage(s) for query: '{query}' [mode: {mode}]\n"]
     for i, (score, chunk) in enumerate(top_results, 1):
         clean_text = chunk.get("text", "").encode("ascii", "ignore").decode("ascii").strip()
         output.append(f"--- [Passage {i}] Source: {chunk.get('source')} (Score: {round(score, 2)}) ---")
