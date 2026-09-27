@@ -1,0 +1,8 @@
+# Hermit Agent runtime dependencies
+httpx>=0.27
+starlette>=0.37
+uvicorn>=0.29
+
+# Only needed for the native Gemini provider (gateway/providers.py GeminiProvider).
+# Safe to skip if you route via OpenRouter / Groq / local vLLM only.
+google-genai>=1.0
