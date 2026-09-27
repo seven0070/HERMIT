@@ -16,27 +16,7 @@ class CalendarStore:
     def _ensure_storage(self):
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
         if not self.file_path.exists():
-            sample_events = [
-                {
-                    "id": "evt-1",
-                    "title": "Agent Architecture Sync",
-                    "date": str(date.today()),
-                    "start_time": "10:00",
-                    "end_time": "10:30",
-                    "description": "Align on Layer 1 Personal Assistant and Layer 2 Specialists",
-                    "attendees": ["Team"]
-                },
-                {
-                    "id": "evt-2",
-                    "title": "Deep Research Sprint",
-                    "date": str(date.today()),
-                    "start_time": "14:00",
-                    "end_time": "15:00",
-                    "description": "Review data extraction benchmarks",
-                    "attendees": ["Solo"]
-                }
-            ]
-            self.save(sample_events)
+            self.save([])
 
     def load(self) -> List[Dict[str, Any]]:
         try:
@@ -48,6 +28,35 @@ class CalendarStore:
     def save(self, events: List[Dict[str, Any]]):
         with open(self.file_path, "w", encoding="utf-8") as f:
             json.dump(events, f, indent=2, ensure_ascii=False)
+
+    def get_events(self, day: Optional[str] = None) -> List[Dict[str, Any]]:
+        events = self.load()
+        if day:
+            return [e for e in events if e.get("date") == day]
+        return events
+
+    def add_event(
+        self,
+        title: str,
+        start_time: str,
+        end_time: str,
+        day: Optional[str] = None,
+        description: str = "",
+        attendees: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        events = self.load()
+        new_event = {
+            "id": f"evt-{len(events) + 1}",
+            "title": title,
+            "date": day if day else str(date.today()),
+            "start_time": start_time,
+            "end_time": end_time,
+            "description": description,
+            "attendees": attendees or []
+        }
+        events.append(new_event)
+        self.save(events)
+        return new_event
 
 calendar_store = CalendarStore()
 
@@ -88,16 +97,8 @@ def add_calendar_event(
         attendees: Optional list of attendees.
     """
     target_date = day if day else str(date.today())
-    events = calendar_store.load()
-    new_event = {
-        "id": f"evt-{len(events) + 1}",
-        "title": title,
-        "date": target_date,
-        "start_time": start_time,
-        "end_time": end_time,
-        "description": description,
-        "attendees": attendees or []
-    }
-    events.append(new_event)
-    calendar_store.save(events)
+    calendar_store.add_event(
+        title=title, start_time=start_time, end_time=end_time,
+        day=target_date, description=description, attendees=attendees
+    )
     return f"Successfully scheduled '{title}' on {target_date} from {start_time} to {end_time}."
