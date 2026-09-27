@@ -736,7 +736,12 @@ routes = [
 ]
 
 middleware = [
-    Middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+    # Dashboard is served same-origin; cross-origin browser access is limited
+        # to localhost so a random website cannot drive the local API.
+        Middleware(CORSMiddleware,
+                   allow_origins=["http://127.0.0.1:8001", "http://localhost:8001"],
+                   allow_methods=["GET", "POST"],
+                   allow_headers=["Content-Type"])
 ]
 
 app = Starlette(debug=True, routes=routes, middleware=middleware)
