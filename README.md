@@ -32,12 +32,15 @@ An enterprise-grade, autonomous, multi-layered AI agent architecture with **Univ
 │           LAYER 3: MODEL CONTEXT PROTOCOL (MCP) & HYBRID RAG           │
 │                                                                        │
 │  [1] HYBRID RAG ENGINE (`rag/`)                                        │
-│      • Semantic chunking with term-frequency & exact phrase boost      │
+│      • Hybrid scoring: local/free embeddings (vLLM/Ollama/Gemini) +    │
+│      • keyword term-frequency fallback when no embedder is running     │
 │      • Auto-indexes markdown/text docs into `data/knowledge/index.json`│
 │                                                                        │
 │  [2] MCP CLIENT HUB (`mcp_hub/`)                                       │
-│      • Dynamic tool discovery and execution via `mcp_config.json`      │
-│      • Connected servers: `filesystem` and `system_info`               │
+│      • REAL MCP protocol: JSON-RPC 2.0 over stdio AND streamable HTTP  │
+│      • Live tool discovery via tools/list; servers in `mcp_config.json`│
+│      • Ships a zero-dep example server (`mcp_servers/notes_server.py`) │
+│      • Built-ins (filesystem, system_info, browser) honestly labeled   │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     ▼
@@ -89,8 +92,11 @@ hermit/
 │   └── store.py                    # JSON chunk persistence (`data/knowledge/`)
 │
 ├── mcp_hub/                        # Layer 3: Model Context Protocol (MCP)
-│   ├── client.py                   # Dynamic tool dispatcher (`filesystem`, `system_info`)
+│   ├── client.py                   # Real MCP client (stdio + HTTP JSON-RPC) + builtins
 │   └── config.py                   # Server configuration loader
+│
+├── mcp_servers/                    # Example REAL MCP servers (zero deps)
+│   └── notes_server.py             # Persistent notes over stdio JSON-RPC
 │
 ├── swarm/                          # Layer 4: Autonomous Multi-Agent Swarm
 │   ├── base.py                     # BaseSpecialistAgent class
@@ -132,6 +138,7 @@ From the CLI prompt, you can:
 - Manage tasks: *"Add a P1 task to review pull requests"*
 - Query documentation (RAG): *"Based on docs, how does the API Gateway work?"*
 - Run MCP tools: *"What operating system and python version are we on?"*
+- Use the real MCP notes server: *"add a note: buy GPU thermal paste"*
 - Run Swarm workflows: *"Run swarm workflow: Design an automated alert system"*
 
 ---
@@ -148,3 +155,38 @@ Open **[http://localhost:8001](http://localhost:8001)** (port 8000 stays reserve
 - **Knowledge Base (RAG)**: Live chunk search and document queries.
 - **MCP Explorer**: Inspect connected servers and execute tools on demand.
 - **Self-Evolution**: View all logged mutation history and version increments.
+
+---
+
+## 🔌 MCP servers (real protocol)
+
+`mcp_config.json` declares servers. Two kinds:
+
+```jsonc
+{
+  "mcpServers": {
+    "notes": {                                 // REAL MCP over stdio
+      "command": "${PYTHON}",                  // ${PYTHON} = current interpreter
+      "args": ["${ROOT}/mcp_servers/notes_server.py"],
+      "enabled": true
+    },
+    "remote": {                                // REAL MCP over streamable HTTP
+      "url": "https://example.com/mcp",
+      "headers": {"Authorization": "Bearer ..."},
+      "enabled": false
+    },
+    "filesystem": {"type": "builtin", "enabled": true}  // built-in, not MCP
+  }
+}
+```
+
+## 📚 RAG modes
+
+Retrieval is hybrid when an embedding backend is reachable, keyword-only otherwise:
+
+| Backend  | Config | Notes |
+|----------|--------|-------|
+| vLLM     | `LOCAL_VLLM_URL` + `VLLM_EMBED_MODEL` | local-first |
+| Ollama   | `OLLAMA_URL` + `OLLAMA_EMBED_MODEL` (default `nomic-embed-text`) | local-first |
+| Gemini   | `GEMINI_API_KEY` + `GEMINI_EMBED_MODEL` | free tier |
+| none     | `RAG_EMBED_PROVIDER=none` | force keyword-only |
