@@ -80,7 +80,7 @@ TOOLS_REGISTRY: Dict[str, Callable] = {
 def build_system_instructions() -> str:
     memory_block = memory_store.get_memory_prompt_block()
 
-    return f"""You are Hermit Agent, the user's primary Personal AI Assistant (Layer 1).
+    base = f"""You are Hermit Agent, the user's primary Personal AI Assistant (Layer 1).
 You serve as an executive chief-of-staff, orchestrator, and personal copilot.
 
 {memory_block}
@@ -117,6 +117,11 @@ You serve as an executive chief-of-staff, orchestrator, and personal copilot.
    something, ALWAYS use the matching tool - never just say you did it.
 """
 
+    evolved_block = self_evolver.get_evolved_rules_block()
+    if evolved_block:
+        base += "\n\n" + evolved_block
+    return base
+
 def parse_tool_call_args(arg_src: Optional[str]) -> Tuple[list, dict]:
     """Parses the argument list of a tool call using the Python AST.
 
@@ -135,6 +140,7 @@ class UniversalGatewayAgent:
     def __init__(self, system_instructions: str):
         self.system_instructions = system_instructions
         self.history: List[Dict[str, str]] = []
+        self.last_tool_errors: List[str] = []
 
     async def __aenter__(self):
         return self
@@ -157,10 +163,12 @@ class UniversalGatewayAgent:
         fn = TOOLS_REGISTRY.get(name)
         if fn is None:
             known = ", ".join(sorted(TOOLS_REGISTRY))
+            self.last_tool_errors.append(f"Unknown tool '{name}'")
             return f"[TOOL ERROR] Unknown tool '{name}'. Known tools: {known}"
         try:
             args, kwargs = parse_tool_call_args(arg_src)
         except Exception as e:
+            self.last_tool_errors.append(f"Could not parse arguments for '{name}': {e}")
             return f"[TOOL ERROR] Could not parse arguments for '{name}': {e}"
         try:
             result = fn(*args, **kwargs)
@@ -168,8 +176,10 @@ class UniversalGatewayAgent:
                 result = await result
             return str(result)
         except TypeError as e:
+            self.last_tool_errors.append(f"Bad arguments for '{name}': {e}")
             return f"[TOOL ERROR] Bad arguments for '{name}': {e}"
         except Exception as e:
+            self.last_tool_errors.append(f"{type(e).__name__} while running '{name}': {e}")
             return f"[TOOL ERROR] {type(e).__name__} while running '{name}': {e}"
 
     def _fast_path(self, prompt: str) -> Optional[str]:
@@ -204,6 +214,7 @@ class UniversalGatewayAgent:
         return prompt
 
     async def chat(self, prompt: str) -> str:
+        self.last_tool_errors = []
         fast = self._fast_path(prompt)
         if fast is not None:
             self._record_turn(prompt, fast)

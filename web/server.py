@@ -67,7 +67,8 @@ async def api_chat(request):
         ev_res = await self_evolver.evolve(
             current_instructions=getattr(ag, "system_instructions", ""),
             user_input=message,
-            agent_output=reply
+            agent_output=reply,
+            tool_errors=list(getattr(ag, "last_tool_errors", []))
         )
         if ev_res.get("evolved") and hasattr(ag, "apply_instructions"):
             ag.apply_instructions(ev_res["instructions"])

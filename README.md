@@ -23,8 +23,10 @@ An enterprise-grade, autonomous, multi-layered AI agent architecture with **Univ
 │      • Zero-Downtime Auto-Failover (handles 402 credits & 429 limits)  │
 │                                                                        │
 │  [2] SELF-EVOLVER ENGINE (`evolver/`)                                  │
-│      • Continuous turn evaluation, issue diagnosis, and mutation       │
-│      • Versioned Evolution Log (`data/evolution_log.json`)             │
+│      • Evolves ONLY on real failure signals (tool errors, explicit     │
+│        user corrections, refusals) - never on keyword coincidence      │
+│      • Evolved rules persist to disk and reload on every restart       │
+│      • Optional review gate (EVOLVER_REVIEW_GATE=1, approve/reject)    │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     ▼
@@ -82,9 +84,9 @@ hermit/
 │   └── router.py                   # Auto-failover & circuit breaking
 │
 ├── evolver/                        # Layer 2: Self-Evolver Engine
-│   ├── evaluator.py                # Turn evaluator & issue scoring
-│   ├── mutator.py                  # Prompt mutation engine
-│   └── engine.py                   # Version history tracker
+│   ├── evaluator.py                # Signal-based failure detection (no keyword false positives)
+│   ├── mutator.py                  # Operating-rules mutation engine (LLM + offline fallback)
+│   └── engine.py                   # Persistence, versioning & loop guard (`data/learned_skills/`)
 │
 ├── rag/                            # Layer 3: Hybrid RAG Knowledge Base
 │   ├── indexer.py                  # Document chunker & indexer
@@ -113,6 +115,7 @@ hermit/
 │   ├── calendar_events.json        # Scheduled events
 │   ├── tasks.json                  # Active tasks
 │   ├── evolution_log.json          # System mutation log & version tracker
+│   ├── learned_skills/             # Persisted evolved operating rules (reloaded on start)
 │   └── knowledge/index.json        # RAG chunk store
 │
 ├── main.py                         # Interactive CLI runner
