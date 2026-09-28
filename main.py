@@ -60,7 +60,6 @@ async def run_interactive_assistant():
                     
                 print("\nAssistant is thinking...")
                 response = await ag.chat(user_input)
-                # chat() returns plain text; keep .text extraction for the Antigravity SDK path
                 if hasattr(response, "text"):
                     reply_text = response.text if isinstance(response.text, str) else str(response.text)
                 else:

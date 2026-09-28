@@ -233,11 +233,33 @@ def _builtin_system_info(tool_name: str, arguments: Dict[str, Any]) -> str:
         )
     raise MCPError(f"Tool '{tool_name}' not found on built-in server 'system_info'. Available: get_os_info, get_python_env")
 
+# The built-in filesystem server is sandboxed: paths must stay under
+# MCP_FS_ROOT (default: the repo root). Anything else - absolute paths,
+# ".." escapes, sensitive files - is denied. This matters because the web
+# API exposes tool execution on localhost.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+FS_ROOT = Path(os.environ.get("MCP_FS_ROOT", str(REPO_ROOT))).resolve()
+SENSITIVE_FILE_NAMES = {".env"}
+
+def _resolve_in_sandbox(raw_path: str) -> Path:
+    p = Path(raw_path)
+    if not p.is_absolute():
+        p = FS_ROOT / p
+    resolved = p.resolve()
+    if resolved != FS_ROOT and FS_ROOT not in resolved.parents:
+        raise MCPError(f"Access denied: '{raw_path}' is outside the filesystem sandbox ({FS_ROOT}).")
+    if resolved.name in SENSITIVE_FILE_NAMES:
+        raise MCPError(f"Access denied: '{resolved.name}' is a sensitive file and not readable via MCP tools.")
+    return resolved
+
 def _builtin_filesystem(tool_name: str, arguments: Dict[str, Any]) -> str:
     if tool_name == "list_directory":
         dir_path = arguments.get("path", ".")
-        p = Path(dir_path)
-        if not p.exists():
+        try:
+            p = _resolve_in_sandbox(dir_path)
+        except MCPError as e:
+            return f"Error: {e}"
+        if not p.exists() or not p.is_dir():
             return f"Directory not found: {dir_path}"
         entries = [f"{'[DIR] ' if e.is_dir() else '[FILE]'} {e.name}" for e in p.iterdir()]
         return f"Contents of '{dir_path}':\n" + "\n".join(entries[:25])
@@ -245,8 +267,11 @@ def _builtin_filesystem(tool_name: str, arguments: Dict[str, Any]) -> str:
         file_path = arguments.get("path")
         if not file_path:
             return "Error: 'path' argument is required for read_file."
-        p = Path(file_path)
-        if not p.exists():
+        try:
+            p = _resolve_in_sandbox(file_path)
+        except MCPError as e:
+            return f"Error: {e}"
+        if not p.exists() or not p.is_file():
             return f"File not found: {file_path}"
         with open(p, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read(2000)

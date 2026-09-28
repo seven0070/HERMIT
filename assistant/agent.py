@@ -6,7 +6,6 @@ MAX_TOOL_LOOPS rounds. Conversation history is kept per agent instance and
 passed to the gateway so chat turns are not stateless.
 """
 
-import os
 import ast
 import inspect
 import re
@@ -271,26 +270,5 @@ class UniversalGatewayAgent:
         return note
 
 def create_personal_assistant() -> Any:
-    """Instantiates the Layer 1 Personal Assistant.
-
-    Uses Google Antigravity SDK if a valid GEMINI_API_KEY is present,
-    otherwise uses the Universal Gateway (OpenRouter, Groq, etc.).
-    """
-    instructions = build_system_instructions()
-
-    if os.environ.get("GEMINI_API_KEY"):
-        try:
-            from google.antigravity import Agent, LocalAgentConfig
-            from google.antigravity.hooks import policy
-            from google.antigravity.models import DEFAULT_MODEL
-            config = LocalAgentConfig(
-                system_instructions=instructions,
-                model=DEFAULT_MODEL,
-                tools=list(TOOLS_REGISTRY.values()),
-                policies=[policy.allow_all()],
-            )
-            return Agent(config)
-        except Exception:
-            pass
-
-    return UniversalGatewayAgent(system_instructions=instructions)
+    """Instantiates the Layer 1 Personal Assistant on the Universal Gateway."""
+    return UniversalGatewayAgent(system_instructions=build_system_instructions())

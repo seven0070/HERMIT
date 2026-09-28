@@ -1,0 +1,2 @@
+# Dev-only dependencies (running tests). Runtime stays at requirements.txt.
+pytest>=8.0

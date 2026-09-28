@@ -70,7 +70,7 @@ An enterprise-grade, autonomous, multi-layered AI agent architecture with **Univ
 ```
 hermit/
 ├── assistant/                      # Layer 1: Personal Assistant
-│   ├── agent.py                    # UniversalGatewayAgent & Antigravity integration
+│   ├── agent.py                    # UniversalGatewayAgent with real tool-call loop
 │   ├── memory.py                   # Long-term persistent memory store
 │   ├── router.py                   # Intent triage & Swarm delegation
 │   └── tools/
@@ -120,7 +120,24 @@ hermit/
 │
 ├── main.py                         # Interactive CLI runner
 ├── mcp_config.json                 # MCP server definitions
+├── tests/                          # Pytest suite (offline; run: python -m pytest tests/)
+├── .github/workflows/tests.yml     # CI: pytest on Ubuntu + Windows
 └── .env                            # Active provider keys & config
+```
+
+### Security notes
+
+- The web API binds to `127.0.0.1` and CORS is restricted to localhost origins -
+  a random website open in your browser cannot drive the local API.
+- The built-in filesystem MCP server is sandboxed to the repo root (override with
+  `MCP_FS_ROOT`); `..` escapes, absolute paths outside the sandbox, and `.env`
+  are denied.
+
+### Running tests
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest tests/
 ```
 
 ---
